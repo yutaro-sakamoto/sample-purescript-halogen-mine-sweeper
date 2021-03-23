@@ -17,9 +17,38 @@ main = runHalogenAff do
   body <- awaitBody
   runUI component unit body
 
-type State = Maybe Number
+type State =
+  { config :: Config
+  , board :: Board
+  , ranking :: Array GameRecord
+  }
 
-data Action = Regenerate
+type Config =
+  { boardWidth :: Int
+  , boardHeight :: Int
+  , numberOfBombs :: Int
+  }
+
+defaultConfig :: Config
+defaultConfig =
+  { boardWidth: 20
+  , boardHeight: 10
+  , numberOfBombs: 30
+  }
+
+type Board =
+  { matrix :: Int
+  }
+initialBoard :: Board
+initialBoard = {
+  matrix: 0
+  }
+
+type GameRecord =
+  { score :: Int
+  }
+
+data Action = DoNothing
 
 component :: forall query input output m. MonadEffect m => H.Component query input output m
 component =
@@ -30,23 +59,22 @@ component =
     }
 
 initialState :: forall input. input -> State
-initialState _ = Nothing
+initialState _ =
+  { config: defaultConfig
+  , board: initialBoard
+  , ranking: []
+  }
 
 render :: forall m. State -> H.ComponentHTML Action () m
-render state = do
-  let value = maybe "No number generated yet" show state
+render state =
   HH.div_
     [ HH.h1_
-        [ HH.text "Random number" ]
+        [ HH.text "Mine Sweeper" ]
     , HH.p_
-        [ HH.text ("Current value: " <> value) ]
-    , HH.button
-        [ HE.onClick \_ -> Regenerate ]
-        [ HH.text "Generate new number" ]
+        [ HH.text "Hello world" ]
     ]
 
 handleAction :: forall output m. MonadEffect m => Action -> H.HalogenM State Action () output m Unit
 handleAction = case _ of
-  Regenerate -> do
-    newNumber <- H.liftEffect random
-    H.modify_ \_ -> Just newNumber
+  _ -> do
+     H.modify_ \x -> x
