@@ -2,7 +2,8 @@ module Main where
 
 import Prelude
 
-import Data.Maybe (Maybe(..), maybe)
+--import Data.Maybe (Maybe(..), maybe)
+import Data.Array (replicate)
 import Effect (Effect)
 import Effect.Class (class MonadEffect)
 import Effect.Random (random)
@@ -19,7 +20,7 @@ main = runHalogenAff do
 
 type State =
   { config :: Config
-  , board :: Board
+  , board :: Board 
   , ranking :: Array GameRecord
   }
 
@@ -29,6 +30,22 @@ type Config =
   , numberOfBombs :: Int
   }
 
+type Board = Array (Array Cell)
+
+type Cell =
+  { appearance :: CellAppearance
+  , arroundBomb :: Int
+  , hasBomb :: Boolean
+  }
+
+data CellAppearance
+  = CellOpen
+  | CellClose
+
+type GameRecord =
+  { score :: Int
+  }
+
 defaultConfig :: Config
 defaultConfig =
   { boardWidth: 20
@@ -36,16 +53,15 @@ defaultConfig =
   , numberOfBombs: 30
   }
 
-type Board =
-  { matrix :: Int
-  }
-initialBoard :: Board
-initialBoard = {
-  matrix: 0
-  }
+makeInitialBoard :: Config -> Board
+makeInitialBoard config =
+  replicate config.boardWidth $ replicate config.boardHeight initialCell
 
-type GameRecord =
-  { score :: Int
+initialCell :: Cell
+initialCell =
+  { appearance: CellClose
+  , arroundBomb: 0
+  , hasBomb: false
   }
 
 data Action = DoNothing
@@ -61,7 +77,7 @@ component =
 initialState :: forall input. input -> State
 initialState _ =
   { config: defaultConfig
-  , board: initialBoard
+  , board: makeInitialBoard defaultConfig
   , ranking: []
   }
 
