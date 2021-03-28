@@ -7,7 +7,7 @@ import Data.Array
 import Data.Tuple
 import Effect (Effect)
 import Effect.Class (class MonadEffect)
-import Effect.Random (random)
+import Effect.Random (randomInt)
 import Halogen as H
 import Halogen.Aff (awaitBody, runHalogenAff)
 import Halogen.HTML as HH
@@ -107,27 +107,60 @@ renderCell :: forall m. Cell -> Int -> Int -> Screen m
 renderCell cell x y = HH.span
   [ HE.onClick $ \_ -> CellClick x y ]
   [ HH.text
-    case cell.appearance of
+  case cell.appearance of
       CellClose -> "O"
       CellOpen ->
         if cell.hasBomb
           then "x"
-          else show $ cell.arroundBomb
+          else "_"
   ]
 
 handleAction :: forall output m. MonadEffect m => Action -> H.HalogenM State Action () output m Unit
 handleAction = case _ of
-  CellClick x y ->
-    H.modify_ \state ->
-      if state.start
-        then state
-        else state { board = fromMaybe state.board $ updateBoard state.board x y }
+  CellClick x y -> do
+    state <- H.get
 
-updateBoard :: Board -> Int -> Int -> Maybe Board
-updateBoard board x y = do
+    let board = state.board
+    newState <- do
+      if state.start
+        then pure $ state { board = openCell x y board }
+        else do
+          newBoard <- H.liftEffect $ spreadBombs state.config x y board
+          pure $ state { board = openCell x y newBoard, start = true }
+
+    H.put newState
+
+openCell :: Int -> Int -> Board -> Board
+openCell x y board = modifyBoardAt x y board \cell -> cell { appearance = CellOpen }
+
+generateRandomArray :: Int -> Array Int -> Effect (Array Int)
+generateRandomArray _ [] = pure []
+generateRandomArray 0 _  = pure []
+generateRandomArray n xs = do
+  index <- randomInt 0 (length xs - 1)
+  let y = fromMaybe 0 (xs !! index)
+      ys = fromMaybe [] (deleteAt index xs)
+  cons y <$> generateRandomArray (n - 1) ys
+
+spreadBombs :: Config -> Int -> Int -> Board -> Effect Board
+spreadBombs config x y board = do
+  let
+    n = x * config.boardWidth + y
+    l = range 0 (n - 2)
+    r = range n (config.boardWidth * config.boardHeight - 1)
+    xs = concat [l, r]
+  ys <- generateRandomArray (config.numberOfBombs) xs
+  pure $ foldl putBomb board ys
+  where
+    putBomb :: Board -> Int -> Board
+    putBomb bd n =
+      let x_ = n / config.boardWidth
+          y_ = n `mod` config.boardWidth
+       in modifyBoardAt x_ y_ bd $ \cell -> cell { hasBomb = true }
+
+modifyBoardAt :: Int -> Int -> Board -> (Cell -> Cell) -> Board
+modifyBoardAt x y board f = fromMaybe board do
   line <- board !! x
-  cell <- line !! y
-  let newCell = cell { appearance = CellOpen, hasBomb = true }
-  newLine <- updateAt y newCell line
+  newLine <- modifyAt y f line
   newBoard <- updateAt x newLine board
   pure newBoard
