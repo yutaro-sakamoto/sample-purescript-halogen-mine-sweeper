@@ -2,8 +2,9 @@ module Main where
 
 import Prelude
 
---import Data.Maybe (Maybe(..), maybe)
-import Data.Array (replicate)
+import Data.Maybe (Maybe(..), fromMaybe)
+import Data.Array
+import Data.Tuple
 import Effect (Effect)
 import Effect.Class (class MonadEffect)
 import Effect.Random (random)
@@ -22,6 +23,7 @@ type State =
   { config :: Config
   , board :: Board 
   , ranking :: Array GameRecord
+  , start :: Boolean
   }
 
 type Config =
@@ -64,7 +66,8 @@ initialCell =
   , hasBomb: false
   }
 
-data Action = DoNothing
+data Action
+  = CellClick Int Int
 
 component :: forall query input output m. MonadEffect m => H.Component query input output m
 component =
@@ -79,18 +82,52 @@ initialState _ =
   { config: defaultConfig
   , board: makeInitialBoard defaultConfig
   , ranking: []
+  , start: false
   }
 
-render :: forall m. State -> H.ComponentHTML Action () m
+type Screen m = H.ComponentHTML Action () m
+
+render :: forall m. State -> Screen m
 render state =
   HH.div_
     [ HH.h1_
         [ HH.text "Mine Sweeper" ]
-    , HH.p_
-        [ HH.text "Hello world" ]
+    , HH.div_
+        [ renderBoard state.board ]
     ]
+
+renderBoard :: forall m. Board -> Screen m
+renderBoard board = HH.div_ do
+  Tuple line x <- zip board (0 .. (length board - 1))
+  pure $ HH.div_ do
+     Tuple cell y <- zip line (0 .. (length line - 1))
+     pure $ renderCell cell x y 
+
+renderCell :: forall m. Cell -> Int -> Int -> Screen m
+renderCell cell x y = HH.span
+  [ HE.onClick $ \_ -> CellClick x y ]
+  [ HH.text
+    case cell.appearance of
+      CellClose -> "O"
+      CellOpen ->
+        if cell.hasBomb
+          then "x"
+          else show $ cell.arroundBomb
+  ]
 
 handleAction :: forall output m. MonadEffect m => Action -> H.HalogenM State Action () output m Unit
 handleAction = case _ of
-  _ -> do
-     H.modify_ \x -> x
+  CellClick x y ->
+    H.modify_ \state ->
+      if state.start
+        then state
+        else state { board = fromMaybe state.board $ updateBoard state.board x y }
+
+updateBoard :: Board -> Int -> Int -> Maybe Board
+updateBoard board x y = do
+  line <- board !! x
+  cell <- line !! y
+  let newCell = cell { appearance = CellOpen, hasBomb = true }
+  newLine <- updateAt y newCell line
+  newBoard <- updateAt x newLine board
+  pure newBoard
