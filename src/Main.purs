@@ -24,7 +24,7 @@ type State =
   { config :: Config
   , board :: Board 
   , ranking :: Array GameRecord
-  , start :: Boolean
+  , phase :: Phase
   }
 
 type Config =
@@ -50,6 +50,12 @@ data CellAppearance
 type GameRecord =
   { score :: Int
   }
+
+data Phase
+  = Ready
+  | Playing
+  | GameOver
+  | Clear
 
 defaultConfig :: Config
 defaultConfig =
@@ -90,7 +96,7 @@ initialState _ =
   { config: defaultConfig
   , board: makeInitialBoard defaultConfig
   , ranking: []
-  , start: false
+  , phase: Ready
   }
 
 type Screen m = H.ComponentHTML Action () m
@@ -99,9 +105,9 @@ render :: forall m. State -> Screen m
 render state =
   HH.div_
     [ HH.h1_
-        [ HH.text "Mine Sweeper" ]
+      [ HH.text "Mine Sweeper" ]
     , HH.div_
-        [ renderBoard state.board ]
+      [ renderBoard state.board ]
     ]
 
 renderBoard :: forall m. Board -> Screen m
@@ -130,17 +136,65 @@ handleAction = case _ of
 
     let board = state.board
     newState <- do
-      if state.start
-        then pure $ state { board = openCell x y board }
-        else do
+      case state.phase of
+        Playing ->
+          pure $ state { board = openCells x y board }
+        Ready -> do
           boardWithBombs <- H.liftEffect $ spreadBombs state.config x y board
           let newBoard = setArroundBombNumbers boardWithBombs
-          pure $ state { board = openCell x y newBoard, start = true }
+          pure $ state { board = openCells x y newBoard, phase = Playing }
+        _ -> pure state
 
     H.put newState
 
-openCell :: Int -> Int -> Board -> Board
-openCell x y board = modifyBoardAt x y board \cell -> cell { appearance = CellOpen }
+openOneCell :: Int -> Int -> Board -> Board
+openOneCell x y board = modifyBoardAt x y board (\cell -> cell { appearance = CellOpen })
+
+{-modifyBoardAtAll :: (Cell -> Cell) -> Board -> Array (Tuple Int Int) -> Board
+modifyBoardAtAll points f board =
+  foldl (\board point -> modifyBoardAt (fst point) (snd point) f board) board points
+  -}
+openCells :: Int -> Int -> Board -> Board
+openCells x y board = 
+  case getBoardAt x y board of
+    Nothing -> board
+    Just cell ->
+      if cell.hasBomb
+        then openOneCell x y board 
+        else
+          let
+            pointsToOpen = openArroundCells
+              [Tuple x y]
+              (if cell.arroundBombs == 0
+                then [Tuple x y]
+                else [])
+              board
+            f :: Board -> Tuple Int Int -> Board
+            f bd point = openOneCell (fst point) (snd point) bd
+          in
+            foldl f board pointsToOpen
+
+openArroundCells :: Array (Tuple Int Int) -> Array (Tuple Int Int) -> Board -> Array (Tuple Int Int)
+openArroundCells marked zeroCells board =
+  case uncons zeroCells of
+    Nothing -> marked
+    Just {head: Tuple x y, tail: rest} ->
+      let
+        arroundPoints = [
+          Tuple (x-1) (y-1), Tuple (x-1) (y), Tuple (x-1) (y+1), 
+          Tuple (x) (y-1), Tuple (x) (y+1), 
+          Tuple (x+1) (y-1), Tuple (x+1) (y), Tuple (x+1) (y+1)
+        ]
+        safePoints = flip filter arroundPoints \point ->
+          case getBoardAt (fst point) (snd point) board of
+            Nothing -> false
+            Just cell -> not cell.hasBomb
+        zeroPoints = flip filter safePoints \point ->
+          case getBoardAt (fst point) (snd point) board of
+            Nothing -> false
+            Just cell -> cell.arroundBombs == 0
+      in
+        openArroundCells (marked <> (safePoints \\ marked)) (rest <> ((zeroPoints \\ marked) \\ rest)) board
 
 generateRandomArray :: Int -> Array Int -> Effect (Array Int)
 generateRandomArray _ [] = pure []
