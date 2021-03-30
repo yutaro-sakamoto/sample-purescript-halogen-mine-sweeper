@@ -6,14 +6,18 @@ import Data.Maybe (Maybe(..), fromMaybe, maybe)
 import Data.Array
 import Data.Tuple
 import Data.Foldable (sum)
+import Data.Ord (abs)
 import Effect (Effect)
 import Effect.Class (class MonadEffect)
 import Effect.Random (randomInt)
 import Halogen as H
 import Halogen.Aff (awaitBody, runHalogenAff)
 import Halogen.HTML as HH
+import Halogen.HTML.Properties as HP
 import Halogen.HTML.Events as HE
 import Halogen.VDom.Driver (runUI)
+import Web.UIEvent.MouseEvent as ME
+import Web.Event.Event (Event, EventType(..), preventDefault, stopPropagation)
 
 main :: Effect Unit
 main = runHalogenAff do
@@ -45,7 +49,7 @@ type Cell =
 
 data CellAppearance
   = CellOpen
-  | CellClose
+  | CellClose Boolean
 
 type GameRecord =
   { score :: Int
@@ -73,7 +77,7 @@ makeInitialBoard config = do
 
 initialCell :: Int -> Int -> Cell
 initialCell x y =
-  { appearance: CellClose
+  { appearance: CellClose false
   , arroundBombs: 0
   , hasBomb: false
   , x: x
@@ -81,7 +85,8 @@ initialCell x y =
   }
 
 data Action
-  = CellClick Int Int
+  = CellLeftClick Int Int
+  | CellRightClick Int Int
 
 component :: forall query input output m. MonadEffect m => H.Component query input output m
 component =
@@ -108,6 +113,13 @@ render state =
       [ HH.text "Mine Sweeper" ]
     , HH.div_
       [ renderBoard state.board ]
+    , HH.div_
+      [ HH.text (case state.phase of
+          Ready -> ""
+          Playing -> ""
+          GameOver -> "Game Over"
+          Clear -> "Game Clear!!")
+      ]
     ]
 
 renderBoard :: forall m. Board -> Screen m
@@ -115,14 +127,19 @@ renderBoard board = HH.div_ do
   Tuple line x <- zip board (0 .. (length board - 1))
   pure $ HH.div_ do
      Tuple cell y <- zip line (0 .. (length line - 1))
-     pure $ renderCell cell x y 
+     pure $ renderCell cell x y
+
+onContextMenu :: forall r i. (Event -> i) -> HP.IProp (onContextMenu :: Event | r) i
+onContextMenu = HE.handler (EventType "contextmenu")
 
 renderCell :: forall m. Cell -> Int -> Int -> Screen m
-renderCell cell x y = HH.span
-  [ HE.onClick $ \_ -> CellClick x y ]
+renderCell cell x y = HH.button
+  [ HE.onClick $ \_ -> CellLeftClick x y
+  , onContextMenu $ \_ -> CellRightClick x y
+  ]
   [ HH.text
   case cell.appearance of
-      CellClose -> "~"
+      CellClose flag -> if flag then "@" else "~"
       CellOpen ->
         if cell.hasBomb
           then "X"
@@ -131,14 +148,18 @@ renderCell cell x y = HH.span
 
 handleAction :: forall output m. MonadEffect m => Action -> H.HalogenM State Action () output m Unit
 handleAction = case _ of
-  CellClick x y -> do
+  CellLeftClick x y -> do
     state <- H.get
 
     let board = state.board
     newState <- do
       case state.phase of
-        Playing ->
-          pure $ state { board = openCells x y board }
+        Playing -> pure (
+          case getBoardAt x y board of
+            Nothing -> state
+            Just cell -> if cell.hasBomb
+              then state { board = openCells x y board, phase = GameOver }
+              else state { board = openCells x y board })
         Ready -> do
           boardWithBombs <- H.liftEffect $ spreadBombs state.config x y board
           let newBoard = setArroundBombNumbers boardWithBombs
@@ -146,6 +167,14 @@ handleAction = case _ of
         _ -> pure state
 
     H.put newState
+
+  CellRightClick x y -> do
+     H.modify_ \state ->
+       case getBoardAt x y state.board of
+         Nothing -> state
+         Just cell -> case cell.appearance of
+           CellClose flag -> state { board = modifyBoardAt x y state.board (\cell -> cell { appearance = CellClose $ not flag }) }
+           _ -> state
 
 openOneCell :: Int -> Int -> Board -> Board
 openOneCell x y board = modifyBoardAt x y board (\cell -> cell { appearance = CellOpen })
@@ -208,7 +237,15 @@ generateRandomArray n xs = do
 spreadBombs :: Config -> Int -> Int -> Board -> Effect Board
 spreadBombs config x y board = do
   let n = x * config.boardWidth + y
-      indices = filter (_ /= n) (0 .. (config.boardWidth * config.boardHeight - 1))
+      farFromN m =
+        let
+          mx = m / config.boardWidth
+          my = m `mod` config.boardHeight
+          nx = n / config.boardWidth
+          ny = n `mod` config.boardHeight
+        in
+          abs (mx - nx) > 1 || abs (my - ny) > 1
+      indices = filter farFromN (0 .. (config.boardWidth * config.boardHeight - 1))
   ys <- generateRandomArray (config.numberOfBombs) indices
   pure $ foldl putBomb board ys
   where
