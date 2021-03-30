@@ -18,6 +18,7 @@ import Halogen.HTML.Events as HE
 import Halogen.VDom.Driver (runUI)
 import Web.UIEvent.MouseEvent as ME
 import Web.Event.Event (Event, EventType(..), preventDefault, stopPropagation)
+import Control.Alternative (guard)
 
 main :: Effect Unit
 main = runHalogenAff do
@@ -209,11 +210,11 @@ openArroundCells marked zeroCells board =
     Nothing -> marked
     Just {head: Tuple x y, tail: rest} ->
       let
-        arroundPoints = [
-          Tuple (x-1) (y-1), Tuple (x-1) (y), Tuple (x-1) (y+1), 
-          Tuple (x) (y-1), Tuple (x) (y+1), 
-          Tuple (x+1) (y-1), Tuple (x+1) (y), Tuple (x+1) (y+1)
-        ]
+        arroundPoints = do
+           dx <- (-1 .. 1)
+           dy <- (-1 .. 1)
+           guard $ dx /= 0 || dy /= 0
+           pure $ Tuple (x + dx) (y + dy)
         safePoints = flip filter arroundPoints \point ->
           case getBoardAt (fst point) (snd point) board of
             Nothing -> false
@@ -268,11 +269,11 @@ setArroundBombNumbers board = do
             x = cell.x
             y = cell.y
             arroundCells :: Array (Maybe Cell)
-            arroundCells = map (\getFunc -> getFunc board) [
-              getBoardAt (x-1) (y-1), getBoardAt (x-1) (y+0), getBoardAt (x-1) (y+1),
-              getBoardAt (x+0) (y-1), getBoardAt (x+0) (y+1),
-              getBoardAt (x+1) (y-1), getBoardAt (x+1) (y+0), getBoardAt (x+1) (y+1)
-            ]
+            arroundCells = do
+              dx <- (-1 .. 1)
+              dy <- (-1 .. 1)
+              guard $ dx /= 0 || dy /= 0
+              pure $ getBoardAt (x + dx) (y + dy) board
             num = sum $ map (maybe 0 (\c -> if c.hasBomb then 1 else 0)) arroundCells
           in
             cell { arroundBombs = num }
