@@ -158,9 +158,12 @@ handleAction = case _ of
         Playing -> pure (
           case getBoardAt x y board of
             Nothing -> state
-            Just cell -> if cell.hasBomb
-              then state { board = openCells x y board, phase = GameOver }
-              else state { board = openCells x y board })
+            Just cell ->
+              if cell.hasBomb
+                then state { board = openCells x y board, phase = GameOver }
+              else case cell.appearance of
+                CellOpen -> openArroundCellsAtOnce x y state
+                _ -> state { board = openCells x y board })
         Ready -> do
           boardWithBombs <- H.liftEffect $ spreadBombs state.config x y board
           let newBoard = setArroundBombNumbers boardWithBombs
@@ -177,13 +180,59 @@ handleAction = case _ of
            CellClose flag -> state { board = modifyBoardAt x y state.board (\cell -> cell { appearance = CellClose $ not flag }) }
            _ -> state
 
+openArroundCellsAtOnce :: Int -> Int -> State -> State
+openArroundCellsAtOnce x y state = case getBoardAt x y state.board of
+  Nothing -> state
+  Just cell ->
+    case cell.appearance of
+      CellClose flag -> state
+      CellOpen ->
+        let
+          arroundCells = do
+            dx <- (-1 .. 1)
+            dy <- (-1 .. 1)
+            pure $ getBoardAt (x + dx) (y + dy) state.board
+          numberOfFlagsArround = length $ filter (maybe false isFlagCell) arroundCells
+          isFlagCell cell = case cell.appearance of
+            CellClose true -> true
+            _ -> false
+        in
+          if cell.arroundBombs == numberOfFlagsArround
+            then openAllClosedNoFlagCellsArround x y state
+            else state
+
+openAllClosedNoFlagCellsArround :: Int -> Int -> State -> State
+openAllClosedNoFlagCellsArround x y state =
+  let
+    arroundPoints = do
+      dx <- (-1 .. 1)
+      dy <- (-1 .. 1)
+      pure $ Tuple (x + dx) (y + dy)
+    pointsToOpen = filter noFlagClosePoint arroundPoints
+    noFlagClosePoint (Tuple xx yy) = case getBoardAt xx yy state.board of
+      Nothing -> false
+      Just cell -> case cell.appearance of
+        CellClose false -> true
+        _ -> false
+    newBoard = modifyBoardAtAll (\cell -> cell { appearance = CellOpen }) state.board pointsToOpen
+    bombPoints = filter hasBomb pointsToOpen
+    hasBomb (Tuple xx yy) = case getBoardAt xx yy state.board of
+      Nothing -> false
+      Just cell -> cell.hasBomb
+  in
+    if null bombPoints
+      then state { board = newBoard }
+      else state { board = newBoard, phase = GameOver }
+
+modifyBoardAtAll :: (Cell -> Cell) -> Board -> Array (Tuple Int Int) -> Board
+modifyBoardAtAll modifyCell board points = foldl f board points
+  where
+    f :: Board -> Tuple Int Int -> Board
+    f board point = modifyBoardAt (fst point) (snd point) board modifyCell
+
 openOneCell :: Int -> Int -> Board -> Board
 openOneCell x y board = modifyBoardAt x y board (\cell -> cell { appearance = CellOpen })
 
-{-modifyBoardAtAll :: (Cell -> Cell) -> Board -> Array (Tuple Int Int) -> Board
-modifyBoardAtAll points f board =
-  foldl (\board point -> modifyBoardAt (fst point) (snd point) f board) board points
-  -}
 openCells :: Int -> Int -> Board -> Board
 openCells x y board = 
   case getBoardAt x y board of
