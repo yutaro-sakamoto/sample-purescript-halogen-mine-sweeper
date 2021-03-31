@@ -2,10 +2,9 @@ module Main where
 
 import Prelude
 
-import Data.Maybe (Maybe(..), fromMaybe, maybe)
-import Data.Array
-import Data.Tuple
-import Data.Foldable (sum)
+import Data.Maybe (Maybe(..), fromMaybe)
+import Data.Array (cons, deleteAt, filter, foldl, length, modifyAt, null, uncons, updateAt, zip, (!!), (..), (\\))
+import Data.Tuple (Tuple(..), fst, snd)
 import Data.Ord (abs)
 import Effect (Effect)
 import Effect.Class (class MonadEffect)
@@ -16,8 +15,7 @@ import Halogen.HTML as HH
 import Halogen.HTML.Properties as HP
 import Halogen.HTML.Events as HE
 import Halogen.VDom.Driver (runUI)
-import Web.UIEvent.MouseEvent as ME
-import Web.Event.Event (Event, EventType(..), preventDefault, stopPropagation)
+import Web.Event.Event (Event, EventType(..))
 import Control.Alternative (guard)
 
 main :: Effect Unit
@@ -184,7 +182,7 @@ handleAction = case _ of
        case getBoardAt x y state.board of
          Nothing -> state
          Just cell -> case cell.appearance of
-           CellClose flag -> state { board = modifyBoardAt x y state.board (\cell -> cell { appearance = CellClose $ not flag }) }
+           CellClose flag -> state { board = modifyBoardAt x y state.board (setCellAppearance $ CellClose $ not flag) }
            _ -> state
 
   Reset -> do
@@ -195,6 +193,8 @@ handleAction = case _ of
        , phase: Ready
        }
 
+type Point = Tuple Int Int
+
 openArroundCellsAtOnce :: Int -> Int -> State -> State
 openArroundCellsAtOnce x y state = case getBoardAt x y state.board of
   Nothing -> state
@@ -203,12 +203,9 @@ openArroundCellsAtOnce x y state = case getBoardAt x y state.board of
       CellClose flag -> state
       CellOpen ->
         let
-          arroundCells = do
-            dx <- (-1 .. 1)
-            dy <- (-1 .. 1)
-            pure $ getBoardAt (x + dx) (y + dy) state.board
-          numberOfFlagsArround = length $ filter (maybe false isFlagCell) arroundCells
-          isFlagCell cell = case cell.appearance of
+          arroundPoints = getArroundPoints x y
+          numberOfFlagsArround = length $ filterPointsOnBoard isFlagCell state.board arroundPoints
+          isFlagCell c = case c.appearance of
             CellClose true -> true
             _ -> false
         in
@@ -219,34 +216,17 @@ openArroundCellsAtOnce x y state = case getBoardAt x y state.board of
 openAllClosedNoFlagCellsArround :: Int -> Int -> State -> State
 openAllClosedNoFlagCellsArround x y state =
   let
-    arroundPoints = do
-      dx <- (-1 .. 1)
-      dy <- (-1 .. 1)
-      pure $ Tuple (x + dx) (y + dy)
-    pointsToOpen = filter noFlagClosePoint arroundPoints
-    noFlagClosePoint (Tuple xx yy) = case getBoardAt xx yy state.board of
-      Nothing -> false
-      Just cell -> case cell.appearance of
-        CellClose false -> true
-        _ -> false
-    newBoard = modifyBoardAtAll (\cell -> cell { appearance = CellOpen }) state.board pointsToOpen
-    bombPoints = filter hasBomb pointsToOpen
-    hasBomb (Tuple xx yy) = case getBoardAt xx yy state.board of
-      Nothing -> false
-      Just cell -> cell.hasBomb
+    arroundPoints = getArroundPoints x y
+    pointsToOpen = filterPointsOnBoard noFlagClosePoint state.board arroundPoints
+    noFlagClosePoint cell = case cell.appearance of
+      CellClose false -> true
+      _ -> false
+    newBoard = modifyBoardAtPoints (setCellAppearance CellOpen) state.board pointsToOpen
+    bombPoints = filterPointsOnBoard (_.hasBomb) state.board pointsToOpen
   in
     if null bombPoints
       then state { board = newBoard }
       else state { board = newBoard, phase = GameOver }
-
-modifyBoardAtAll :: (Cell -> Cell) -> Board -> Array (Tuple Int Int) -> Board
-modifyBoardAtAll modifyCell board points = foldl f board points
-  where
-    f :: Board -> Tuple Int Int -> Board
-    f board point = modifyBoardAt (fst point) (snd point) board modifyCell
-
-openOneCell :: Int -> Int -> Board -> Board
-openOneCell x y board = modifyBoardAt x y board (\cell -> cell { appearance = CellOpen })
 
 openCells :: Int -> Int -> Board -> Board
 openCells x y board = 
@@ -254,19 +234,16 @@ openCells x y board =
     Nothing -> board
     Just cell ->
       if cell.hasBomb
-        then openOneCell x y board 
+        then modifyBoardAt x y board (setCellAppearance CellOpen)
         else
           let
-            pointsToOpen = openArroundCells
-              [Tuple x y]
-              (if cell.arroundBombs == 0
+            pointsToOpen = openArroundCells [Tuple x y] zeroCells board
+            zeroCells =
+              if cell.arroundBombs == 0
                 then [Tuple x y]
-                else [])
-              board
-            f :: Board -> Tuple Int Int -> Board
-            f bd point = openOneCell (fst point) (snd point) bd
+                else []
           in
-            foldl f board pointsToOpen
+            modifyBoardAtPoints (setCellAppearance CellOpen) board pointsToOpen
 
 openArroundCells :: Array (Tuple Int Int) -> Array (Tuple Int Int) -> Board -> Array (Tuple Int Int)
 openArroundCells marked zeroCells board =
@@ -274,19 +251,9 @@ openArroundCells marked zeroCells board =
     Nothing -> marked
     Just {head: Tuple x y, tail: rest} ->
       let
-        arroundPoints = do
-           dx <- (-1 .. 1)
-           dy <- (-1 .. 1)
-           guard $ dx /= 0 || dy /= 0
-           pure $ Tuple (x + dx) (y + dy)
-        safePoints = flip filter arroundPoints \point ->
-          case getBoardAt (fst point) (snd point) board of
-            Nothing -> false
-            Just cell -> not cell.hasBomb
-        zeroPoints = flip filter safePoints \point ->
-          case getBoardAt (fst point) (snd point) board of
-            Nothing -> false
-            Just cell -> cell.arroundBombs == 0
+        arroundPoints = getArroundPoints x y
+        safePoints = filterPointsOnBoard (not _.hasBomb) board arroundPoints
+        zeroPoints = filterPointsOnBoard (\cell -> cell.arroundBombs == 0) board safePoints
       in
         openArroundCells (marked <> (safePoints \\ marked)) (rest <> ((zeroPoints \\ marked) \\ rest)) board
 
@@ -321,26 +288,18 @@ spreadBombs config x y board = do
        in modifyBoardAt x_ y_ bd $ \cell -> cell { hasBomb = true }
 
 setArroundBombNumbers :: Board -> Board
-setArroundBombNumbers board = do
-  line <- board
-  pure do
-    cell <- line
-    pure $ setNumber cell board
-      where
-        setNumber :: Cell -> Board -> Cell
-        setNumber cell board = 
-          let
-            x = cell.x
-            y = cell.y
-            arroundCells :: Array (Maybe Cell)
-            arroundCells = do
-              dx <- (-1 .. 1)
-              dy <- (-1 .. 1)
-              guard $ dx /= 0 || dy /= 0
-              pure $ getBoardAt (x + dx) (y + dy) board
-            num = sum $ map (maybe 0 (\c -> if c.hasBomb then 1 else 0)) arroundCells
-          in
-            cell { arroundBombs = num }
+setArroundBombNumbers board =
+  modifyBoardAtAll setNumber board
+    where
+      setNumber :: Cell -> Cell
+      setNumber cell = 
+        let
+          arroundPoints = getArroundPoints cell.x cell.y
+          pointsHasBomb = filterPointsOnBoard (_.hasBomb) board arroundPoints
+        in
+          cell { arroundBombs = length pointsHasBomb }
+
+-- Helper Functions --
 
 modifyBoardAt :: Int -> Int -> Board -> (Cell -> Cell) -> Board
 modifyBoardAt x y board f = fromMaybe board do
@@ -349,8 +308,42 @@ modifyBoardAt x y board f = fromMaybe board do
   newBoard <- updateAt x newLine board
   pure newBoard
 
+modifyBoardAtPoints :: (Cell -> Cell) -> Board -> Array Point -> Board
+modifyBoardAtPoints modifyCell board points = foldl f board points
+  where
+    f :: Board -> Point -> Board
+    f bd point = modifyBoardAt (fst point) (snd point) bd modifyCell
+
+
+modifyBoardAtAll :: (Cell -> Cell) -> Board -> Board
+modifyBoardAtAll modifyCell board = modifyBoardAtPoints modifyCell board points
+  where
+    xlen = length board
+    ylen = length $ fromMaybe [] (board !! 0)
+    points = do
+       x <- (0 .. (xlen - 1))
+       y <- (0 .. (ylen - 1))
+       pure $ Tuple x y
+
 getBoardAt :: Int -> Int -> Board -> Maybe Cell
 getBoardAt x y board = do
   line <- board !! x
   cell <- line !! y
   pure cell
+
+getArroundPoints :: Int -> Int -> Array Point
+getArroundPoints x y = do
+  dx <- (-1 .. 1)
+  dy <- (-1 .. 1)
+  guard $ dx /= 0 || dy /= 0
+  pure $ Tuple (x + dx) (y + dy)
+
+filterPointsOnBoard :: (Cell -> Boolean) -> Board -> Array Point -> Array Point
+filterPointsOnBoard pred board points = filter f points
+  where
+    f (Tuple x y) = case getBoardAt x y board of
+      Nothing -> false
+      Just cell -> pred cell
+
+setCellAppearance :: CellAppearance -> Cell -> Cell
+setCellAppearance appearance cell = cell { appearance = appearance }
