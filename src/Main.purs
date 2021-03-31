@@ -88,6 +88,7 @@ initialCell x y =
 data Action
   = CellLeftClick Int Int
   | CellRightClick Int Int
+  | Reset
 
 component :: forall query input output m. MonadEffect m => H.Component query input output m
 component =
@@ -108,20 +109,26 @@ initialState _ =
 type Screen m = H.ComponentHTML Action () m
 
 render :: forall m. State -> Screen m
-render state =
-  HH.div_
-    [ HH.h1_
-      [ HH.text "Mine Sweeper" ]
-    , HH.div_
-      [ renderBoard state.board ]
-    , HH.div_
-      [ HH.text (case state.phase of
-          Ready -> ""
-          Playing -> ""
-          GameOver -> "Game Over"
-          Clear -> "Game Clear!!")
+render state = HH.div_
+  [ HH.div_
+      [ HH.h1_
+        [ HH.text "Mine Sweeper" ]
+      , HH.div_
+        [ renderBoard state.board ]
+      , HH.div_
+        [ HH.text (case state.phase of
+            Ready -> ""
+            Playing -> ""
+            GameOver -> "Game Over"
+            Clear -> "Game Clear!!")
+        ]
       ]
-    ]
+  , HH.div_
+      [ HH.button
+        [ HE.onClick $ \_ -> Reset ]
+        [ HH.text "Reset!" ]
+      ]
+  ]
 
 renderBoard :: forall m. Board -> Screen m
 renderBoard board = HH.div_ do
@@ -179,6 +186,14 @@ handleAction = case _ of
          Just cell -> case cell.appearance of
            CellClose flag -> state { board = modifyBoardAt x y state.board (\cell -> cell { appearance = CellClose $ not flag }) }
            _ -> state
+
+  Reset -> do
+     H.put
+       { config: defaultConfig
+       , board: makeInitialBoard defaultConfig
+       , ranking: []
+       , phase: Ready
+       }
 
 openArroundCellsAtOnce :: Int -> Int -> State -> State
 openArroundCellsAtOnce x y state = case getBoardAt x y state.board of
