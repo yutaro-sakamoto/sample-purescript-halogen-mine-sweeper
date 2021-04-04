@@ -62,16 +62,16 @@ data Phase
 
 defaultConfig :: Config
 defaultConfig =
-  { boardWidth: 20
-  , boardHeight: 10
+  { boardWidth: 10
+  , boardHeight: 20
   , numberOfBombs: 30
   }
 
 makeInitialBoard :: Config -> Board
 makeInitialBoard config = do
-    x <- (0 .. (config.boardWidth - 1))
+    x <- (0 .. (config.boardHeight - 1))
     pure do
-       y <- (0 .. (config.boardHeight - 1))
+       y <- (0 .. (config.boardWidth - 1))
        pure $ initialCell x y
 
 initialCell :: Int -> Int -> Cell
@@ -272,11 +272,9 @@ spreadBombs config x y board = do
       farFromN m =
         let
           mx = m / config.boardWidth
-          my = m `mod` config.boardHeight
-          nx = n / config.boardWidth
-          ny = n `mod` config.boardHeight
+          my = m `mod` config.boardWidth
         in
-          abs (mx - nx) > 1 || abs (my - ny) > 1
+          abs (mx - x) > 1 || abs (my - y) > 1
       indices = filter farFromN (0 .. (config.boardWidth * config.boardHeight - 1))
   ys <- generateRandomArray (config.numberOfBombs) indices
   pure $ foldl putBomb board ys
