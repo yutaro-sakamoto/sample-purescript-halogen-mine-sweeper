@@ -1,0 +1,1 @@
+# sample-purescript-halogen-mine-sweeper
