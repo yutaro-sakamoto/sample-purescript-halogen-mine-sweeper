@@ -19,6 +19,7 @@ import Halogen.VDom.Driver (runUI)
 import Web.Event.Event (Event, EventType(..))
 import Web.HTML.Common (ClassName)
 import Control.Alternative (guard)
+import Data.Foldable(sum)
 
 main :: Effect Unit
 main = runHalogenAff do
@@ -179,9 +180,13 @@ handleAction = case _ of
             Just cell ->
               if cell.hasBomb
                 then state { board = openCells x y board, phase = GameOver }
-              else case cell.appearance of
-                CellOpen -> openArroundCellsAtOnce x y state
-                _ -> state { board = openCells x y board })
+                else
+                  let state_ = case cell.appearance of
+                        CellOpen -> openArroundCellsAtOnce x y state
+                        _ -> state { board = openCells x y board }
+                  in if numberOfClosedCells state_.board == state_.config.numberOfBombs
+                       then state_ { phase = Clear }
+                       else state_)
         Ready -> do
           boardWithBombs <- H.liftEffect $ spreadBombs state.config x y board
           let newBoard = setArroundBombNumbers boardWithBombs
@@ -207,6 +212,14 @@ handleAction = case _ of
        }
 
 type Point = Tuple Int Int
+
+numberOfClosedCells :: Board -> Int
+numberOfClosedCells = sum <<< map (length <<< filter isClosedCell)
+
+isClosedCell :: Cell -> Boolean
+isClosedCell cell = case cell.appearance of
+  CellClose _ -> true
+  _ -> false
 
 openArroundCellsAtOnce :: Int -> Int -> State -> State
 openArroundCellsAtOnce x y state = case getBoardAt x y state.board of
