@@ -1,0 +1,53 @@
+.cell {
+    margin: 0.2em;
+    width: 2em;
+    height: 2em;
+}
+
+.cell-open {
+    background: #99ccff;
+}
+
+.cell-close {
+    background: #f58d42;
+}
+
+.cell-open-0 {
+    color: black;
+}
+
+.cell-open-1 {
+    color: black;
+}
+
+.cell-open-2 {
+    color: red;
+}
+
+.cell-open-3 {
+    color: blue;
+}
+
+.cell-open-4 {
+    color: green;
+}
+
+.cell-open-5 {
+    color: purple;
+}
+
+.cell-open-6 {
+    color: orange;
+}
+
+.cell-open-7 {
+    color: darkgreen;
+}
+
+.cell-open-8 {
+    color: lightpink;
+}
+
+.cell-flag {
+    color: midnightblue;
+}
