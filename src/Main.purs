@@ -14,8 +14,10 @@ import Halogen.Aff (awaitBody, runHalogenAff)
 import Halogen.HTML as HH
 import Halogen.HTML.Properties as HP
 import Halogen.HTML.Events as HE
+import Halogen.HTML.Core as HC
 import Halogen.VDom.Driver (runUI)
 import Web.Event.Event (Event, EventType(..))
+import Web.HTML.Common (ClassName)
 import Control.Alternative (guard)
 
 main :: Effect Unit
@@ -142,6 +144,7 @@ renderCell :: forall m. Cell -> Int -> Int -> Screen m
 renderCell cell x y = HH.button
   [ HE.onClick $ \_ -> CellLeftClick x y
   , onContextMenu $ \_ -> CellRightClick x y
+  , HP.classes $ cellDesignClass cell
   ]
   [ HH.text
   case cell.appearance of
@@ -149,8 +152,18 @@ renderCell cell x y = HH.button
       CellOpen ->
         if cell.hasBomb
           then "X"
-          else show cell.arroundBombs
+          else if cell.arroundBombs == 0
+                 then "-"
+                 else show cell.arroundBombs
   ]
+
+cellDesignClass :: Cell -> Array ClassName
+cellDesignClass cell = map H.ClassName $ ["cell"] <>
+  case cell.appearance of
+    CellOpen -> ["cell-open", "cell-open-" <> show cell.arroundBombs]
+    CellClose flag -> if flag
+                        then ["cell-close", "cell-flag"]
+                        else ["cell-close"]
 
 handleAction :: forall output m. MonadEffect m => Action -> H.HalogenM State Action () output m Unit
 handleAction = case _ of
